@@ -1,87 +1,149 @@
--- DESCRIBE sales_records.customer_records;
--- DESCRIBE sales_records.exchange_records;
--- DESCRIBE sales_records.product_records;
--- DESCRIBE sales_records.sales_records;
--- DESCRIBE sales_records.stores_records;
+use database sales_record;
+
+-- Customer Demographics across Region
+SELECT 
+    c.Country,
+    c.Continent,
+    c.State,
+    c.City,
+    c.Gender,
+    c.Age_Category,
+    COUNT(*) as CustomerCount,
+    COUNT(DISTINCT s.OrderNumber) as TotalOrders,
+    SUM(s.Revenue_USD) as TotalRevenue,
+    AVG(s.Revenue_USD) as AvgRevenue
+FROM cleaned_customers c
+JOIN cleaned_sales s ON c.CustomerKey = s.CustomerKey
+GROUP BY 
+    c.Country, c.Continent, c.State, 
+    c.City, c.Gender, c.Age_Category;
+ORDER BY TotalRevenue DESC;
+
+-- Store Performance Analysis
+SELECT 
+    st.Country,
+    st.Store_Size_Category,
+    COUNT(DISTINCT s.OrderNumber) as TotalOrders,
+    SUM(s.Revenue_USD) as TotalRevenue
+FROM Cleaned_Stores st
+JOIN Cleaned_Sales s ON st.StoreKey = s.StoreKey
+GROUP BY st.Country, st.Store_Size_Category
+ORDER BY TotalOrders DESC;
+
+-- Sales Trend Analysis
+SELECT 
+    YEAR(OrderDate) as Year,
+    MONTH(OrderDate) as Month,
+    COUNT(DISTINCT OrderNumber) as TotalOrders,
+    SUM(Revenue_USD) as TotalRevenue,
+    AVG(Revenue_USD) as AvgOrderValue
+FROM Cleaned_Sales
+GROUP BY YEAR(OrderDate), MONTH(OrderDate)
+ORDER BY Year, Month;
 
 
--- Customer Records Queries
-SELECT * FROM sales_records.customer_records;
+-- Customer Purchase Frequency
+SELECT 
+    c.CustomerKey,
+    COUNT(DISTINCT s.OrderNumber) as OrderCount,
+    SUM(s.Revenue_USD) as TotalSpent,
+    SUM(s.Revenue_USD)/COUNT(DISTINCT s.OrderNumber) as AvgOrderValue
+FROM Cleaned_Customers c
+JOIN Cleaned_Sales s ON c.CustomerKey = s.CustomerKey
+GROUP BY c.CustomerKey
+ORDER BY TotalSpent DESC;
 
-SELECT Gender, COUNT(Gender) AS Gender_Count
-FROM sales_records.customer_records
-WHERE Gender IN ('Male', 'Female')
-GROUP BY Gender;
+-- Product Performance Analysis
+SELECT 
+    p.Category,
+    p.Subcategory,
+    p.Brand,
+    COUNT(DISTINCT s.OrderNumber) as OrderCount,
+    SUM(s.Quantity) as TotalUnitsSold,
+    SUM(s.Revenue_USD) as TotalRevenue,
+    AVG(p.UnitPriceUSD) as AvgUnitPrice,
+    AVG(p.UnitPriceUSD - p.UnitCostUSD) as AvgProfit,
+    ((AVG(p.UnitPriceUSD - p.UnitCostUSD)/AVG(p.UnitPriceUSD)) * 100) as ProfitMargin_Percentage
+FROM cleaned_products p
+JOIN cleaned_sales s ON p.ProductKey = s.ProductKey
+GROUP BY p.Category, p.Subcategory, p.Brand
+ORDER BY TotalRevenue DESC;
 
-SELECT AgeGroup, COUNT(*) AS Count
-FROM sales_records.customer_records
-GROUP BY AgeGroup
-ORDER BY AgeGroup;
+-- Customer Segment Analysis by Age and Gender
+SELECT 
+    c.Age_Category,
+    c.Gender,
+    COUNT(DISTINCT c.CustomerKey) as CustomerCount,
+    SUM(s.Revenue_USD) as TotalRevenue,
+    AVG(s.Revenue_USD) as AvgRevenue
+FROM cleaned_customers c
+JOIN cleaned_sales s ON c.CustomerKey = s.CustomerKey
+GROUP BY c.Age_Category, c.Gender
+ORDER BY TotalRevenue DESC;
 
-SELECT sr.Country, COUNT(DISTINCT c.CustomerKey) AS customer_count 
-FROM sales_records.sales_records c 
-JOIN sales_records.stores_records sr ON c.StoreKey = sr.StoreKey
-GROUP BY sr.Country 
-ORDER BY customer_count DESC;
+-- Store Efficiency Analysis
+SELECT 
+    st.StoreKey,
+    st.Country,
+    st.State,
+    st.Store_Size_Category,
+    st.SquareMeters,
+    DATEDIFF(NOW(), st.OpenDate) as DaysInOperation,
+    COUNT(DISTINCT s.OrderNumber) as TotalOrders,
+    SUM(s.Revenue_USD) as TotalRevenue,
+    SUM(s.Revenue_USD)/st.SquareMeters as Revenue_Per_SqMeter,
+    SUM(s.Revenue_USD)/NULLIF(DATEDIFF(NOW(), st.OpenDate), 0) as Revenue_Per_Day
+FROM cleaned_stores st
+JOIN cleaned_sales s ON st.StoreKey = s.StoreKey
+GROUP BY 
+    st.StoreKey, st.Country, st.State, 
+    st.Store_Size_Category, st.SquareMeters, st.OpenDate
+ORDER BY TotalRevenue DESC;
 
+-- Top Products by Revenue in Each Category
+WITH RankedProducts AS (
+    SELECT 
+        p.Category,
+        p.ProductName,
+        SUM(s.Revenue_USD) as TotalRevenue,
+        RANK() OVER (PARTITION BY p.Category ORDER BY SUM(s.Revenue_USD) DESC) as RevRank
+    FROM cleaned_products p
+    JOIN cleaned_sales s ON p.ProductKey = s.ProductKey
+    GROUP BY p.Category, p.ProductName
+)
+SELECT *
+FROM RankedProducts
+WHERE RevRank <= 3;
 
--- Exchange Records Queries
-SELECT * FROM sales_records.exchange_records;
+-- Sales by Currency Analysis
+SELECT 
+    s.CurrencyCode,
+    COUNT(DISTINCT s.OrderNumber) as Orders,
+    SUM(s.Revenue_USD) as Revenue_USD,
+    AVG(e.Exchange) as Avg_Exchange_Rate,
+    SUM(s.Revenue_USD * e.Exchange) as Local_Currency_Revenue
+FROM cleaned_sales s
+JOIN cleaned_exchange_rates e 
+    ON s.CurrencyCode = e.CurrencyCode 
+    AND s.OrderDate = e.Date
+GROUP BY s.CurrencyCode
+ORDER BY Revenue_USD DESC;
 
-SELECT CurrencyCode, COUNT(*) AS Exchange_Count 
-FROM sales_records.exchange_records 
-GROUP BY CurrencyCode;
-
--- Product Records Queries
-SELECT * FROM sales_records.product_records;
-
-SELECT Subcategory, COUNT(Subcategory) AS Product_Count 
-FROM sales_records.product_records 
-GROUP BY Subcategory;
-
--- Sales Records Queries
-SELECT * FROM sales_records.sales_records;
-
-SELECT s.Country, SUM(pr.Unit_Price_USD * sr.Quantity) AS Total_Sales 
-FROM sales_records.product_records pr 
-JOIN sales_records.sales_records sr ON pr.ProductKey = sr.ProductKey 
-JOIN sales_records.stores_records s ON sr.StoreKey = s.StoreKey 
-GROUP BY s.Country;
-
-
--- Stores Records Queries
-SELECT * FROM sales_records.stores_records;
-
-SELECT Country, COUNT(StoreKey) AS Store_Count
-FROM sales_records.stores_records
-GROUP BY Country
-ORDER BY Store_Count DESC;
-
-SELECT s.StoreKey, SUM(pr.Unit_Price_USD * sr.Quantity) AS Total_Sales
-FROM sales_records.product_records pr 
-JOIN sales_records.sales_records sr ON pr.ProductKey = sr.ProductKey 
-JOIN sales_records.stores_records s ON sr.StoreKey = s.StoreKey 
-GROUP BY s.StoreKey;
-
-
--- Yearly and Brand Profit Queries
-SELECT YEAR(Order_Date) AS Year, 
-       SUM((Unit_Price_USD - Unit_Cost_USD) * sr.Quantity) AS Profit 
-FROM sales_records.sales_records sr 
-JOIN sales_records.product_records pr ON sr.ProductKey = pr.ProductKey
-GROUP BY YEAR(Order_Date);
-
-SELECT YEAR(Order_Date) AS Year, pr.Brand, 
-       ROUND(SUM(Unit_Price_USD * sr.Quantity), 2) AS Year_Sales 
-FROM sales_records.sales_records sr 
-JOIN sales_records.product_records pr ON sr.ProductKey = pr.ProductKey 
-GROUP BY YEAR(Order_Date), pr.Brand;
-
-SELECT Brand,
-       SUM(Unit_Cost_USD * sr.Quantity) AS Buying_Price,
-       SUM(Unit_Price_USD * sr.Quantity) AS Selling_Price,
-       (SUM(Unit_Price_USD * sr.Quantity) - SUM(Unit_Cost_USD * sr.Quantity)) / 
-       SUM(Unit_Cost_USD * sr.Quantity) * 100 AS Profit 
-FROM sales_records.product_records pr 
-JOIN sales_records.sales_records sr ON sr.ProductKey = pr.ProductKey 
-GROUP BY Brand;
+-- Seasonal Sales Analysis by Category
+SELECT 
+    p.Category,
+    QUARTER(s.OrderDate) as Quarter,
+    MONTHNAME(s.OrderDate) as Month,
+    COUNT(DISTINCT s.OrderNumber) as TotalOrders,
+    SUM(s.Quantity) as UnitsSold,
+    SUM(s.Revenue_USD) as TotalRevenue,
+    AVG(s.Revenue_USD) as AvgOrderValue
+FROM cleaned_sales s
+JOIN cleaned_products p ON s.ProductKey = p.ProductKey
+GROUP BY 
+    p.Category,
+    QUARTER(s.OrderDate),
+    MONTHNAME(s.OrderDate)
+ORDER BY 
+    p.Category,
+    QUARTER(s.OrderDate);
